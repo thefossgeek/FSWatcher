@@ -1,0 +1,129 @@
+#!/bin/bash
+#
+# fswatcherd        Startup script for fswatcher.
+#
+# chkconfig: 2345 12 88
+# description: fswatcherd is Linux filesystem events monitoring tool.\
+# This service starts up the fswatcherd daemon.
+### BEGIN INIT INFO
+# Provides: $fswatcherd
+# Required-Start: $local_fs
+# Required-Stop: $local_fs
+# Default-Start:  2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: fswatcherd is a Linux filesystem events monitoring tool
+# Description: fswatcherd is a Python script for monitoring filesystem events 
+# on Linux through the inotify Linux kernel subsystem. 
+# It can monitor when a file is created, accessed, deleted, modified, etc.
+### END INIT INFO
+
+# Source function library.
+. /etc/init.d/functions
+
+RETVAL=0
+PIDFILE=/var/run/fswatcherd.pid
+
+prog=fswatcherd
+exec=/opt/FSWatcher/bin/fswatcher
+python_exec=/usr/bin/python
+lockfile=/var/lock/subsys/$prog
+
+# Source config
+if [ -f /etc/sysconfig/$prog ] ; then
+    . /etc/sysconfig/$prog
+fi
+
+start() {
+	
+		[ -x $exec ] || exit 5
+
+		umask 077
+
+		if [ -f $PIDFILE ]; then
+			fswatcher_pid=`/bin/cat $PIDFILE 2> /dev/null`
+        	if [ -n "$fswatcher_pid" ]; then
+            	/bin/kill -9 $fswatcher_pid
+        	fi
+			/bin/rm -f $PIDFILE
+		fi
+
+        echo -n $"Starting fswatcher: "
+		$python_exec $exec
+        RETVAL=$?
+        echo
+        [ $RETVAL -eq 0 ] && touch $lockfile
+        return $RETVAL
+}
+stop() {
+        echo -n $"Shutting down fswatcher........."
+		fswatcher_pid=`/bin/cat $PIDFILE 2> /dev/null`
+		if [ -n "$fswatcher_pid" ]; then
+    		/bin/kill -9 $fswatcher_pid
+        	RETVAL=$?
+
+			if [ -f $PIDFILE ]; then
+                /bin/rm -f $PIDFILE
+            fi
+
+            if [ -f $PIDFILE ]; then
+                /bin/rm -f $lockfile
+            fi
+
+		fi
+		
+		fswatcher_pid=`/bin/ps aux | /bin/grep -v grep | /bin/grep "$python_exec $exec" | /bin/awk '{print $2}' 2> /dev/null`
+		if [ -n "$fswatcher_pid" ]; then
+    		/bin/kill -9 $fswatcher_pid
+        	RETVAL=$?
+		fi
+
+        if [ $RETVAL -eq 0 ]; then
+			
+			if [ -f $PIDFILE ]; then
+				/bin/rm -f $PIDFILE	
+			fi
+			
+			if [ -f $PIDFILE ]; then
+				/bin/rm -f $lockfile
+			fi
+		fi
+		echo
+        return $RETVAL
+}
+rhstatus() {
+        status -p "$PIDFILE" -l $prog $exec
+}
+restart() {
+        stop
+        start
+}
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  restart)
+        restart
+        ;;
+  reload)
+        exit 3
+        ;;
+  force-reload)
+        restart
+        ;;
+  status)
+        rhstatus
+        ;;
+  condrestart|try-restart)
+        rhstatus >/dev/null 2>&1 || exit 0
+        restart
+        ;;
+  *)
+        echo $"Usage: $0 {start|stop|restart|condrestart|try-restart|reload|force-reload|status}"
+        exit 3
+esac
+
+exit $?

@@ -1,0 +1,188 @@
+#!/usr/bin/env python
+# 
+#
+# fswatcher.py - is Python script used to monitor and act upon filesystem events. 
+# It is written using Pyinotify is a Python module. 
+# It can monitor when a file is created, accessed, deleted, modified, etc.
+# 
+# 
+
+# Import required Python modules
+import os
+import sys
+import datetime
+import smtplib
+from ConfigParser import SafeConfigParser
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+try:
+	import pyinotify
+except:
+	print "pyinotify not installed" 
+	sys.exit(1)
+
+class MyEventHandler(pyinotify.ProcessEvent):
+	"""
+	This subclass from ProcessEvent and provide our own event handler by defining appropriate methods.
+	"""
+	log = ""
+	flog = None
+
+	def process_IN_CREATE(self, event):
+		"""
+		This method processes a specific type of event: IN_CREATE. event
+		is an instance of Event.
+		"""
+		self.write_msg("CREATING", event.pathname) 
+
+	def process_IN_DELETE(self, event):
+		"""
+		This method processes a specific type of event: IN_DELETE. event
+		is an instance of Event.
+		"""
+		self.write_msg("DELETING", event.pathname) 
+
+	def process_IN_MODIFY(self, event):
+		"""
+		This method processes a specific type of event: IN_MODIFY. event
+		is an instance of Event.
+		"""
+		self.write_msg("MODIFIED", event.pathname) 
+
+	def process_IN_OPEN(self, event):
+		"""
+		This method processes a specific type of event: IN_OPEN. event
+		is an instance of Event.
+		"""
+		self.write_msg("OPENED", event.pathname) 
+
+	def process_IN_ACCESS(self, event):
+		"""
+		This method processes a specific type of event: IN_ACCESS. event
+		is an instance of Event.
+		"""
+		self.write_msg("ACCESSED", event.pathname) 
+
+	def process_IN_ATTRIB(self, event):
+		"""
+		This method processes a specific type of event: IN_ATTRIB. event
+		is an instance of Event.
+		"""
+		self.write_msg("ATTRIB", event.pathname) 
+
+	def process_IN_DELETE_SELF(self, event):
+		"""
+		This method processes a specific type of event: IN_DELETE_SELF. event
+		is an instance of Event.
+		"""
+		self.write_msg("DELETE_SELF", event.pathname)
+
+	def process_IN_MOVED_FROM(self, event):
+		"""
+		This method processes a specific type of event: IN_MOVED_FROM. event
+		is an instance of Event.
+		"""
+		self.write_msg("FILE MOVED FROM", event.pathname) 
+
+	def process_IN_MOVED_TO(self, event):
+		"""
+		This method processes a specific type of event: IN_MOVED_TO. event
+		is an instance of Event.
+		"""
+		try: 
+			msg = event.src_pathname + " -> " + event.pathname
+		except:
+			msg = event.pathname
+
+		self.write_msg("FILE MOVED INTO", msg) 
+
+	def openlog(self, logfile):
+		"""
+		This method opens log file in append mode.
+		"""
+		self.log = logfile
+		self.flog = file(self.log, 'a')
+
+	def write_msg(self, event, msg):
+		"""
+		This method writes evens in logfile as well as stdout.
+		"""
+		out_msg = self.generate_timestamp() + "\t" + event + ": " + msg + "\n"
+		if len(self.log) > 0:
+			self.flog.write(out_msg)
+			self.flog.flush()
+			print "LOGGED", out_msg
+		else:
+			print "NOT LOGGED", out_msg
+
+	def generate_timestamp(self):
+		"""
+		This method generate and return timestamp for log.
+		Timestamp format is YYYY/MM/DD-HH:MM:SS.
+		"""
+		d = datetime.datetime.now()
+		datestr = "%d/%.2d/%.2d-%.2d:%.2d:%.2d" % (d.year, d.month, d.day, d.hour, d.minute, d.second)
+		return datestr
+
+def assure_path_exists(path):
+	"""
+	Create path or directories, if not exist.
+	"""
+	dir = os.path.dirname(path)
+	if not os.path.exists(dir):
+		os.makedirs(dir)
+
+def main():
+
+	parser = SafeConfigParser()
+	parser.read('/opt/FSWatcher/etc/fswatcher.ini')	
+    
+	### The watch manager stores the watches and provides operations on watches ###
+	wm = pyinotify.WatchManager()
+
+	### List of watched events. To specify two or more events just orize them ###
+	mask = pyinotify.IN_CREATE | pyinotify.IN_DELETE | pyinotify.IN_MODIFY
+	#mask = parser.get('mywatcherscript', 'watched_events')
+
+	# List of watch path
+	#watched_path_list=['/var/log','/tmp']
+	watched_path_list=parser.get('fswatcher', 'watched_path_list').split(',')
+
+	pid_file_name=parser.get('fswatcher', 'pid_file_name')
+	
+	logfile=parser.get('fswatcher', 'logfile')
+
+	# Creates directory /var/log/fswatcher if it does not exist
+	assure_path_exists(logfile)
+
+	# Add watch(s) on the provided path(s) with associated flag value.
+	# Parameters:
+	# path - Path to watch, the path can either be a file or a directory. 
+	#        Also accepts a sequence (list) of paths.
+	# mask (int) - Bitmask of events.
+	# rec (bool) - Recursively add watches from path on all its subdirectories.
+	# auto_add (bool) - Automatically add watches on newly created directories in watched parent directory.
+	# 
+	# Returns: dict of {str: int}
+	# dict of paths associated to watch descriptors. 
+	wm.add_watch(watched_path_list, mask, rec=True, auto_add=True)
+
+	# event handler
+	eh = MyEventHandler()
+	eh.openlog(logfile)
+
+	# notifier
+	# Put an arbitrary large value (30 seconds) to aggregate together a larger
+	# chunk of events. For instance if you repeat several times a given action
+	# on the same file its events will be coalesced into a single event and only
+	# one event of this type will be reported (for this period).
+	notifier = pyinotify.Notifier(wm, eh, read_freq=30)
+	#notifier = pyinotify.Notifier(wm, eh)
+
+	# Enable coalescing of events.
+	notifier.coalesce_events()
+	#notifier.loop()
+	notifier.loop(daemonize=True, pid_file=pid_file_name)
+
+if __name__ == '__main__':
+	main()

@@ -1,0 +1,3 @@
+# Schedule a Background Cron Job For Every 30 minutes through out the year.
+
+*/30 * * * * root /opt/FSWatcher/bin/notifier.sh >> /var/log/FSWatcher/notifier.log 2>&1
